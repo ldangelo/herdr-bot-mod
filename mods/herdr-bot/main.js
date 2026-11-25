@@ -603,7 +603,7 @@ export default class HerdrBot extends View {
               .when(subtitle.length > 0, (el) => el.child(div().truncate().text_size(11).text_color(t.muted).child(subtitle))),
           )
           .child(this.mark(t, statusOf(chat, byId)))
-          .child(div().id("chat-settings").px(8).h(24).rounded(6).flex().items_center().cursor_pointer().text_size(11.5).font_semibold().text_color(t.muted).hover((el) => el.bg(t.hover)).on_click((_event, cx) => (isRoom ? this.openRoomSettings(cx) : this.openProfile(cx))).child(isRoom ? "Settings" : "Role")),
+          .child(div().id("chat-settings").px(8).h(24).rounded(6).flex().items_center().cursor_pointer().text_size(11.5).font_semibold().text_color(t.muted).hover((el) => el.bg(t.hover)).on_click((_event, cx) => (isRoom ? this.openRoomSettings(cx) : this.openProfile(cx))).child("Settings")),
       )
       .when(isRoom, (el) => el.child(this.presenceStrip(t, chat, byId)))
       .child(

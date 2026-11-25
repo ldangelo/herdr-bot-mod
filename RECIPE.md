@@ -33,7 +33,7 @@ Rows are ordered: needs you, working, done, idle, then offline or unknown; withi
 
 **Room settings.** The same form for an existing room, titled `Room settings`: change the name, the members and the folder, `Save`, or `Delete room` (it asks `Really delete?` first). Deleting a room keeps the bots.
 
-**A bot's role.** `Role` in a chat's header opens a screen with **Role** (a short label, e.g. `Code reviewer`) and **What it does** (a sentence). The host tells the bot both every turn (`You are Atlas, Code reviewer…`), which matters most in a room. New bot and Adopt have the same two optional fields.
+**A bot's settings.** `Settings` in a chat's header opens a screen with **Name**, **Role** (a short label, e.g. `Code reviewer`) and **What it does** (a sentence). The host tells the bot all three every turn (`You are Atlas, Code reviewer…`), which matters most in a room. For a bot this mod started (not an adopted agent) it continues with the launch settings, under a rule: **Model** (the same list as New bot), **Reasoning** (providers that take it), **Folder** (text field and `Choose…`) and **Permissions** (`Ask first` or `Auto`). The provider cannot change. A change to any launch setting restarts the agent and keeps the conversation (`bot.updateLaunchSettings`); the hint above them says so. Only the fields you changed are sent. New bot and Adopt have the role fields too.
 
 **Status messages**, centered with 24 px side padding: `Connecting to herdr-bot…`, `Starting the herdr-bot host…`, `Installing the herdr-bot host…`, `Lost the host. Reconnecting…`, and two that ask a question (see *How it behaves*).
 
@@ -57,7 +57,7 @@ Rows are ordered: needs you, working, done, idle, then offline or unknown; withi
 
 ## Built from
 
-`mods/herdr-bot/` has one view and twelve small modules, all plain JavaScript:
+`mods/herdr-bot/` has one view and thirteen small modules, all plain JavaScript:
 
 | File | Does |
 |---|---|
@@ -73,12 +73,13 @@ Rows are ordered: needs you, working, done, idle, then offline or unknown; withi
 | `newbot.js` | the New bot screen |
 | `rooms.js` | room rules: which bots can join, the six-bot limit, member statuses, `room.create` parameters, error wording |
 | `newroom.js` | the New room and Room settings screen |
-| `profile.js` | the Role screen |
+| `profile.js` | the bot Settings screen |
+| `settings.js` | settings rules: what can be edited, which fields changed, what to send, why a form cannot be saved |
 | `ui.js` | headings, text fields, avatars and checkboxes the screens share |
 
 **Herdr APIs:** from `herdr`: `theme`, `props`, `checking`, `appHome`, `home`, `readTextFile`, `exec`, `hc`, `pickFolder`. From the runtime: `fetch` (the manifest), `WebSocket` from `websocket` (to the host), `arch` and `platform` from `os`. From `gpui-base`: `v_flex`, `h_flex`, `ScrollHandle` (`scroll_to_item` keeps the newest message in view), `TextareaState`/`Textarea` (composer), `InputState`/`Input` (fields). Animation is `.loop("opacity", {from: .35, to: 1, period: 1100})`; there are no timers.
 
-**The host's API** (one JSON message each, over the WebSocket): `chat.list`, `chat.markRead`, `transcript.page`, `message.send`, `prompt.answer`, `bot.defaults`, `bot.listModels`, `bot.listAdoptable`, `bot.create`, `room.create`, `room.setMembers`, `room.setDirectory`, `chat.updateProfile`, `chat.delete`; pushed events `chat.listChanged`, `chat.changed`, `transcript.entryAppended`, `transcript.entryUpdated`. The host itself is a separate program from <https://github.com/ldangelo/herdr-app-bot> (it starts agents with `hc`, so it needs herdr-core).
+**The host's API** (one JSON message each, over the WebSocket): `chat.list`, `chat.markRead`, `transcript.page`, `message.send`, `prompt.answer`, `bot.defaults`, `bot.listModels`, `bot.listAdoptable`, `bot.create`, `room.create`, `room.setMembers`, `room.setDirectory`, `chat.updateProfile`, `bot.updateLaunchSettings`, `chat.delete`; pushed events `chat.listChanged`, `chat.changed`, `transcript.entryAppended`, `transcript.entryUpdated`. The host itself is a separate program from <https://github.com/ldangelo/herdr-app-bot> (it starts agents with `hc`, so it needs herdr-core).
 
 **Colors are all theme colors**, so the panel follows light and dark themes: `chrome`, `foreground`, `muted`, `dim`, `border`, `raised`, `selected`, `hover`, `background`, `solid`, `solid_foreground`, `accent`, `accent_foreground`, `blocked`, `working`, `idle`, `done`. The `blocked` tints are the theme color with an alpha suffix (`+"26"`, `+"66"`).
 
@@ -110,5 +111,6 @@ Rows are ordered: needs you, working, done, idle, then offline or unknown; withi
 8. Replacing `<home>/bin/herdr-bot` with a host older than `1.5.1` and reopening the panel shows `The herdr-bot host needs updating`.
 9. With two ready bots, `+ Room` opens New room; `Create` stays disabled until a name, a folder and at least two bots are given. After it, the room appears in the list with `#`, and a message in it is answered by each bot in turn.
 10. Giving a room a folder (`Choose…` or typing a path) and saving makes the host add `Room working directory: <folder>` to each bot's prompt; `chat.list` shows it as the room's `directory`.
-11. Setting a bot's role in `Role` changes the subtitle under its name in the list and in a room's strip.
-12. When one bot in a room is stopped at a permission prompt, the room row and the strip show `Needs you` for that bot, and pressing an option on its card delivers the key to that bot.
+11. Setting a bot's role in `Settings` changes the subtitle under its name in the list and in a room's strip.
+12. Changing a started bot's model in `Settings` and saving restarts its agent (`hc ls` shows it with the new `--model`) and its conversation is still there.
+13. When one bot in a room is stopped at a permission prompt, the room row and the strip show `Needs you` for that bot, and pressing an option on its card delivers the key to that bot.

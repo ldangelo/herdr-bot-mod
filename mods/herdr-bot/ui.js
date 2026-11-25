@@ -1,7 +1,7 @@
 // Small drawing helpers the screens share. They need herdr-app's UI runtime, so unlike the logic modules they only run in the app.
 
 import { div } from "gpui-kit";
-import { Input } from "gpui-base";
+import { Input, h_flex } from "gpui-base";
 
 /** A small uppercase section heading. */
 export function heading(t, text) {
@@ -31,4 +31,22 @@ export function checkbox(t, on, disabled = false) {
     .font_bold()
     .when(on, (el) => el.bg(t.solid).text_color(t.solid_foreground).child("✓"))
     .when(!on, (el) => el.border(1.5).border_color(disabled ? t.dim + "66" : t.muted));
+}
+
+/** A row of pill buttons, one selected. `options` are { id, label }. */
+export function pills(t, prefix, options, selected, onPick) {
+  return h_flex().flex_wrap().gap(6).children(options.map((option) => div()
+    .id(`${prefix}-${option.id}`)
+    .px(10)
+    .h(26)
+    .rounded(7)
+    .flex()
+    .items_center()
+    .text_size(12)
+    .font_semibold()
+    .cursor_pointer()
+    .when(option.id === selected, (el) => el.bg(t.solid).text_color(t.solid_foreground))
+    .when(option.id !== selected, (el) => el.bg(t.raised).text_color(t.foreground).hover((hover) => hover.bg(t.hover)))
+    .on_click((_event, cx) => onPick(option.id, cx))
+    .child(option.label)));
 }
