@@ -4,7 +4,7 @@
 // connects (core/src/version.ts), and anything older than this, or a different major, gets an update prompt instead
 // of half-working. mod/test/version.test.js fails if this drifts from package.json, so bump them together.
 
-export const REQUIRED_HOST_VERSION = "1.5.0";
+export const REQUIRED_HOST_VERSION = "1.5.1";
 
 /**
  * Releases are tagged `host-v<version>` and downloaded by exact tag, never `releases/latest`: "latest" means the newest
