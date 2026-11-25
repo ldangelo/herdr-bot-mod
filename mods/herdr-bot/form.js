@@ -8,9 +8,9 @@ export const PROVIDERS = [
   { id: "grok", label: "Grok CLI", supportsModel: true, supportsReasoning: true },
   { id: "agy", label: "Antigravity CLI", supportsModel: true, supportsReasoning: false },
   { id: "opencode", label: "OpenCode", supportsModel: true, supportsReasoning: false },
-  // These two run on the model and thinking level configured in the CLI itself: nothing to pick here.
-  { id: "omp", label: "Oh My Pi", supportsModel: false, supportsReasoning: false },
-  { id: "pi", label: "Pi", supportsModel: false, supportsReasoning: false },
+  // These two can be given a model, but have their own configured one (and thinking level): leaving it out runs that.
+  { id: "omp", label: "Oh My Pi", supportsModel: true, modelOptional: true, supportsReasoning: false },
+  { id: "pi", label: "Pi", supportsModel: true, modelOptional: true, supportsReasoning: false },
 ];
 
 export const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -50,7 +50,7 @@ export function missingChoices(form) {
   // Like the host, an unknown provider is not "missing" anything here: it is refused later as unsupported.
   const provider = providerById(form.provider);
   return [
-    ...(provider?.supportsModel && !(form.model ?? "").trim() ? ["model"] : []),
+    ...(provider?.supportsModel && !provider.modelOptional && !(form.model ?? "").trim() ? ["model"] : []),
     ...(provider?.supportsReasoning && form.reasoningEffort == null ? ["reasoningEffort"] : []),
   ];
 }

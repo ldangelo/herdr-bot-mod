@@ -85,7 +85,7 @@ export class NewBot {
       if (this.models.provider !== provider) return; // the person picked another provider meanwhile
       const list = result.models ?? [];
       this.models = { provider, state: "ready", list, error: result.error ?? null };
-      if (this.form.model == null && list.length > 0) this.form = { ...this.form, model: list[0].id };
+      if (this.form.model == null && list.length > 0 && !providerById(provider)?.modelOptional) this.form = { ...this.form, model: list[0].id };
     } catch (error) {
       if (this.models.provider === provider) this.models = { provider, state: "error", list: [], error: describeError(error) };
     }
@@ -209,11 +209,12 @@ export class NewBot {
       if (state === "loading" || state === "idle") return div().text_size(12).text_color(t.muted).child("Loading models…");
       if (list.length === 0) {
         return v_flex().gap(4)
-          .child(div().text_size(12).text_color(t.muted).child(error ?? "No model list is available for this provider. Type a model id:"))
+          .child(div().text_size(12).text_color(t.muted).child(error ?? (provider.modelOptional ? "No model list is available. Leave this empty to use the model set up in the CLI, or type provider/model:" : "No model list is available for this provider. Type a model id:")))
           .child(this.field(t, this.modelInput));
       }
-      return v_flex().id("models").max_h(150).overflow_y_scroll().gap(2).children(list.map((model) => div()
-        .id(`model-${model.id}`)
+      const rows = provider.modelOptional ? [{ id: null, label: "Default (the model set up in the CLI)" }, ...list] : list;
+      return v_flex().id("models").max_h(150).overflow_y_scroll().gap(2).children(rows.map((model) => div()
+        .id(`model-${model.id ?? "default"}`)
         .px(10)
         .h(28)
         .rounded(6)
@@ -247,7 +248,7 @@ export class NewBot {
       .child(v_flex().gap(6).child(this.heading(t, "Name")).child(this.field(t, this.nameInput)))
       .child(this.roleFields(t))
       .child(v_flex().gap(6).child(this.heading(t, "Provider")).child(this.choices(t, "provider", PROVIDERS, this.form.provider, (id, cx) => this.pickProvider(id, cx))))
-      .child(this.modelPicker(t))
+      .when(Boolean(provider?.supportsModel), (el) => el.child(this.modelPicker(t)))
       .when(Boolean(provider?.supportsReasoning), (el) => el.child(v_flex().gap(6).child(this.heading(t, "Reasoning")).child(this.choices(t, "effort", REASONING_EFFORTS.map((id) => ({ id, label: id })), this.form.reasoningEffort, (id, cx) => {
         this.form = { ...this.form, reasoningEffort: id };
         cx.notify();
