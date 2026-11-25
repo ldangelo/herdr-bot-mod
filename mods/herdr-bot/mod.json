@@ -1,0 +1,8 @@
+{
+  "place": "right",
+  "size": 360,
+  "focusable": true,
+  "palette": [
+    { "title": "herdr-bot: open chats", "command": "mod.open", "args": { "name": "herdr-bot" }, "words": "bots chat agents rooms" }
+  ]
+}
