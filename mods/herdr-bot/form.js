@@ -8,6 +8,9 @@ export const PROVIDERS = [
   { id: "grok", label: "Grok CLI", supportsModel: true, supportsReasoning: true },
   { id: "agy", label: "Antigravity CLI", supportsModel: true, supportsReasoning: false },
   { id: "opencode", label: "OpenCode", supportsModel: true, supportsReasoning: false },
+  // These two run on the model and thinking level configured in the CLI itself: nothing to pick here.
+  { id: "omp", label: "Oh My Pi", supportsModel: false, supportsReasoning: false },
+  { id: "pi", label: "Pi", supportsModel: false, supportsReasoning: false },
 ];
 
 export const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -25,6 +28,9 @@ export function initialForm(defaults = {}) {
     model: null,
     reasoningEffort: providerById(provider).supportsReasoning ? DEFAULT_REASONING : null,
     name: "",
+    // The bot's role: a short label (shown under its name, and told to the bot), and optionally what it should do.
+    role: "",
+    persona: "",
     cwd: typeof defaults.cwd === "string" ? defaults.cwd : "",
     permissionMode: defaults.permissionMode === "auto" ? "auto" : "ask",
     allowHomeCwd: false,
@@ -61,15 +67,21 @@ export function createParams(form) {
     provider: form.provider,
     cwd: form.cwd.trim(),
     permissionMode: form.permissionMode,
+    ...roleParams(form),
     ...(provider?.supportsModel && form.model != null ? { model: form.model } : {}),
     ...(provider?.supportsReasoning && form.reasoningEffort != null ? { reasoningEffort: form.reasoningEffort } : {}),
     ...(form.allowHomeCwd ? { allowHomeCwd: true } : {}),
   };
 }
 
+/** The role as bot.create params: `title` is the short label, `description` the persona; each only when filled in. */
+export function roleParams({ role = "", persona = "" }) {
+  return { ...(role.trim() ? { title: role.trim() } : {}), ...(persona.trim() ? { description: persona.trim() } : {}) };
+}
+
 /** bot.create params for an agent that is already running (an `AdoptableAgent`'s paneId). */
-export function adoptParams(agent, name) {
-  return { name: name.trim(), adoptPaneId: agent.paneId };
+export function adoptParams(agent, name, role = {}) {
+  return { name: name.trim(), adoptPaneId: agent.paneId, ...roleParams(role) };
 }
 
 /** A person-readable line for an API error code. */
@@ -80,6 +92,7 @@ export function describeError(error) {
     case "home_cwd_requires_confirmation": return "That is your home folder. Confirm below to use it, or choose a project folder.";
     case "missing_cwd": return "Choose a working folder.";
     case "unsupported_kind": return "That provider is not supported here.";
+    case "invalid_directory": return `The folder is not usable: ${error.message}`;
     case "invalid_bot_id": return "That name cannot be turned into a bot id. Use letters and numbers.";
     case "herdr_error": return `The agent could not be started: ${error.message}`;
     default: return error?.message ?? "Something went wrong.";

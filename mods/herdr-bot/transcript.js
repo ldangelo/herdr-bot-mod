@@ -16,7 +16,8 @@ export function entryView(entry) {
     case "message": return { ...base, role: "user", author: nameOf(entry.author), text };
     case "send-message": return { ...base, role: "bot", author: nameOf(entry.author), text };
     case "notice": return { ...base, role: "notice", author: null, text };
-    case "prompt": return { ...base, role: "prompt", author: null, text: entry.prompt?.question ?? "", prompt: entry.prompt ?? null, status: entry.status ?? "pending" };
+    // In a room the card belongs to whichever bot asked: its author, which is who an answer must go to.
+    case "prompt": return { ...base, role: "prompt", author: nameOf(entry.author), botId: typeof entry.author?.id === "string" ? entry.author.id : null, text: entry.prompt?.question ?? "", prompt: entry.prompt ?? null, status: entry.status ?? "pending" };
     default: return { ...base, role: "other", author: nameOf(entry.author), text };
   }
 }

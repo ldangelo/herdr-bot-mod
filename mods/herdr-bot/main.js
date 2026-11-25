@@ -11,8 +11,11 @@ import { AppApiClient } from "./client.js";
 import { HostMissingError, HostOutdatedError, connectToHost, hostLaunchArgs, isHostAlreadyStarting } from "./host.js";
 import { DEFAULT_SOURCE, describeSize, installHost, planInstall } from "./install.js";
 import { describeVersionGap, isHostCurrent } from "./version.js";
-import { applyEvent, statusOf, summarize, visibleChats } from "./state.js";
+import { applyEvent, roleOf, statusOf, summarize, visibleChats } from "./state.js";
 import { NewBot } from "./newbot.js";
+import { ProfileEditor } from "./profile.js";
+import { RoomEditor } from "./newroom.js";
+import { eligibleBots, memberStatuses, mentionHint } from "./rooms.js";
 import { applyTranscriptEvent, isOneClickPrompt, isSeqGap, lastSeq, mergeEntries, visibleEntries } from "./transcript.js";
 
 const MAX_BACKOFF_MS = 10000;
@@ -102,10 +105,33 @@ export default class HerdrBot extends View {
     this.sendError = null;
     this.scrollToEnd = false;
     this.scroll = ScrollHandle.new();
-    // "list" (or the open chat), or the new-bot screen.
+    // "list" (which shows the open chat, if any), or one of the screens that replace it: "new-bot", "new-room",
+    // "room-settings", "profile".
     this.screen = "list";
-    // `props.screen: "new-bot"` opens that screen once connected (a palette entry or tab can ask for it).
-    this.startScreen = props()?.screen === "new-bot" ? "new-bot" : null;
+    // `props.screen` opens that screen once connected (a palette entry or tab can ask for it): "new-bot", "new-room", or,
+    // together with `props.chat`, "room-settings" / "profile" for that room or bot.
+    this.startScreen = ["new-bot", "new-room", "room-settings", "profile"].includes(props()?.screen) ? props().screen : null;
+    const button = (t, id, label, primary, onClick, disabled) => this.button(t, id, label, primary, onClick, disabled);
+    const back = (cx) => {
+      this.screen = "list";
+      cx.notify();
+    };
+    this.roomEditor = new RoomEditor({
+      client: () => this.client,
+      button,
+      onDone: (roomId, cx) => {
+        this.screen = "list";
+        // A new room opens; changing the open room just returns to it, reloaded so a changed name or folder shows.
+        if (this.selected === roomId) cx.notify();
+        else this.openChat(roomId, cx);
+      },
+      onCancel: back,
+      onDeleted: (cx) => {
+        this.screen = "list";
+        this.closeChat(cx);
+      },
+    });
+    this.profileEditor = new ProfileEditor({ client: () => this.client, button, onDone: back, onCancel: back });
     this.newBot = new NewBot({
       client: () => this.client,
       button: (t, id, label, primary, onClick, disabled) => this.button(t, id, label, primary, onClick, disabled),
@@ -180,10 +206,11 @@ export default class HerdrBot extends View {
         const pump = client.pump();
         await this.resync(cx);
         this.phase = "ready";
-        if (this.startScreen === "new-bot") {
-          this.startScreen = null;
-          this.openNewBot(cx);
-        }
+        if (this.startScreen === "new-bot") this.openNewBot(cx);
+        else if (this.startScreen === "new-room") this.openNewRoom(cx);
+        else if (this.startScreen === "room-settings") this.openRoomSettings(cx);
+        else if (this.startScreen === "profile") this.openProfile(cx);
+        this.startScreen = null;
         cx.notify();
         await pump;
         this.phase = "disconnected";
@@ -285,6 +312,29 @@ export default class HerdrBot extends View {
     this.newBot.open(cx);
   }
 
+  openNewRoom(cx) {
+    this.screen = "new-room";
+    this.roomEditor.open(cx, null, this.chats);
+  }
+
+  openRoomSettings(cx) {
+    const room = this.chats.find((chat) => chat.id === this.selected && chat.kind === "room");
+    if (room == null) return;
+    this.screen = "room-settings";
+    this.roomEditor.open(cx, room, this.chats);
+  }
+
+  openProfile(cx) {
+    const bot = this.chats.find((chat) => chat.id === this.selected && chat.kind === "bot");
+    if (bot == null) return;
+    this.screen = "profile";
+    this.profileEditor.open(cx, bot);
+  }
+
+  byId() {
+    return new Map(this.chats.map((chat) => [chat.id, chat]));
+  }
+
   closeChat(cx) {
     this.selected = null;
     this.entries = [];
@@ -339,7 +389,8 @@ export default class HerdrBot extends View {
     this.sendError = null;
     cx.spawn(async (cx) => {
       try {
-        await this.client.request("prompt.answer", { botId: this.selected, signature: view.prompt.signature, action: "option", key: option.key });
+        // In a room the card belongs to the bot that asked (its author), not to the room.
+        await this.client.request("prompt.answer", { botId: view.botId ?? this.selected, signature: view.prompt.signature, action: "option", key: option.key });
       } catch (error) {
         this.sendError = String((error && error.message) || error);
       }
@@ -360,10 +411,43 @@ export default class HerdrBot extends View {
   }
 
   avatar(t, chat, size) {
-    return div().size(size).flex_none().rounded(size / 2).bg(t.raised).flex().items_center().justify_center().text_size(size * 0.43).font_semibold().text_color(t.foreground).child((chat.name || "?").slice(0, 1).toUpperCase());
+    return div().size(size).flex_none().rounded(size / 2).bg(t.raised).flex().items_center().justify_center().text_size(size * 0.43).font_semibold().text_color(t.foreground).child(chat.kind === "room" ? "#" : (chat.name || "?").slice(0, 1).toUpperCase());
   }
 
-  row(t, chat) {
+  /** A small status dot for a member chip: needs you / working / idle. */
+  presenceDot(t, status) {
+    if (status === "blocked") return div().size(7).flex_none().rounded(4).bg(t.blocked);
+    if (status === "working") return div().size(7).flex_none().rounded(4).bg(t.working).loop("opacity", { from: 0.35, to: 1, period: 1100 });
+    if (status === "idle" || status === "done") return div().size(7).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
+    return div().size(7).flex_none().rounded(4).bg(t.dim + "66");
+  }
+
+  /** Who is in the room and what each is doing, wrapping onto more lines when there are many. */
+  presenceStrip(t, chat, byId) {
+    return h_flex()
+      .flex_none()
+      .flex_wrap()
+      .gap(6)
+      .px(10)
+      .py(6)
+      .border_b(1)
+      .border_color(t.border)
+      .children(memberStatuses(chat, byId).map((member) => h_flex()
+        .h(22)
+        .px(8)
+        .gap(6)
+        .rounded(11)
+        .items_center()
+        .bg(member.status === "blocked" ? t.blocked + "26" : t.raised)
+        .child(this.presenceDot(t, member.status))
+        .child(div().text_size(11).font_semibold().text_color(member.status === "blocked" ? t.blocked : t.foreground).child(member.name))
+        .when(member.role.length > 0, (el) => el.child(div().text_size(10.5).text_color(t.muted).child(member.role)))));
+  }
+
+  row(t, chat, byId) {
+    const role = roleOf(chat);
+    const folder = chat.directory == null ? "" : chat.directory.split("/").filter(Boolean).pop() ?? "";
+    const preview = chat.lastMessagePreview || (chat.kind === "room" ? `${chat.memberIds?.length ?? 0} bots${folder.length > 0 ? ` · ${folder}` : ""}` : chat.bot?.provider ?? "Bot");
     return h_flex()
       .id(`chat-${chat.id}`)
       .px(10)
@@ -381,11 +465,11 @@ export default class HerdrBot extends View {
           .flex_1()
           .min_w(0)
           .gap(1)
-          .child(div().truncate().text_size(13).font_semibold().text_color(t.foreground).child(chat.name))
-          .child(div().truncate().text_size(11.5).text_color(t.muted).child(chat.lastMessagePreview || (chat.kind === "room" ? "Room" : chat.bot?.provider ?? "Bot"))),
+          .child(h_flex().gap(6).items_center().child(div().truncate().text_size(13).font_semibold().text_color(t.foreground).child(chat.name)).when(role.length > 0, (el) => el.child(div().truncate().flex_shrink(1).text_size(11).text_color(t.dim).child(role))))
+          .child(div().truncate().text_size(11.5).text_color(t.muted).child(preview)),
       )
       .when(chat.unreadCount > 0, (el) => el.child(div().flex_none().min_w(18).h(18).px(5).rounded(9).bg(t.accent).text_size(10.5).font_semibold().text_color(t.accent_foreground).flex().items_center().justify_center().child(String(chat.unreadCount))))
-      .child(this.mark(t, statusOf(chat)));
+      .child(this.mark(t, statusOf(chat, byId)));
   }
 
   notice(t, text, detail, action, onAction) {
@@ -457,12 +541,12 @@ export default class HerdrBot extends View {
       .border(1)
       .border_color(answerable ? t.blocked + "66" : t.border)
       .bg(t.raised)
-      .child(div().text_size(10.5).font_semibold().text_color(answerable ? t.blocked : t.dim).child(answerable ? "NEEDS YOU" : String(view.status).toUpperCase()))
+      .child(div().text_size(10.5).font_semibold().text_color(answerable ? t.blocked : t.dim).child(`${view.author != null && chat?.kind === "room" ? `${view.author} · ` : ""}${answerable ? "NEEDS YOU" : String(view.status).toUpperCase()}`))
       .when(Boolean(view.prompt?.title), (el) => el.child(div().text_size(12).font_semibold().text_color(t.foreground).child(view.prompt.title)))
       .child(this.body(t, view.text, t.foreground))
       .when(Boolean(view.prompt?.body?.length), (el) => el.child(this.body(t, view.prompt.body.join("\n"), t.muted)))
       .when(answerable, (el) => el.child(v_flex().gap(4).children(view.prompt.options.map((option) => this.button(t, `answer-${view.id}-${option.key}`, `${option.key}. ${option.label}`, false, (_event, cx) => this.answer(view, option, cx))))))
-      .when(view.status === "pending" && !answerable, (el) => el.child(div().text_size(11.5).text_color(t.muted).child(`This one needs typing or several choices: answer it in ${chat?.name ?? "the bot"}'s terminal.`)));
+      .when(view.status === "pending" && !answerable, (el) => el.child(div().text_size(11.5).text_color(t.muted).child(`This one needs typing or several choices: answer it in ${view.author ?? chat?.name ?? "the bot"}'s terminal.`)));
   }
 
   message(t, view, chat) {
@@ -493,6 +577,10 @@ export default class HerdrBot extends View {
       this.scrollToEnd = false;
     }
     const empty = this.input.value().trim().length === 0;
+    const byId = this.byId();
+    const isRoom = chat.kind === "room";
+    // Under the name: a bot's role, or a room's size and folder.
+    const subtitle = isRoom ? `${chat.memberIds?.length ?? 0} bots${chat.directory ? ` · ${chat.directory}` : " · no folder"}` : roleOf(chat);
     return v_flex()
       .flex_1()
       .min_h(0)
@@ -507,15 +595,24 @@ export default class HerdrBot extends View {
           .border_color(t.border)
           .child(div().id("back").px(8).h(26).rounded(6).flex().items_center().cursor_pointer().text_size(14).text_color(t.muted).hover((el) => el.bg(t.hover)).on_click((_event, cx) => this.closeChat(cx)).child("‹"))
           .child(this.avatar(t, chat, 24))
-          .child(div().flex_1().truncate().text_size(13).font_semibold().child(chat.name))
-          .child(this.mark(t, statusOf(chat))),
+          .child(
+            v_flex()
+              .flex_1()
+              .min_w(0)
+              .child(div().truncate().text_size(13).font_semibold().child(chat.name))
+              .when(subtitle.length > 0, (el) => el.child(div().truncate().text_size(11).text_color(t.muted).child(subtitle))),
+          )
+          .child(this.mark(t, statusOf(chat, byId)))
+          .child(div().id("chat-settings").px(8).h(24).rounded(6).flex().items_center().cursor_pointer().text_size(11.5).font_semibold().text_color(t.muted).hover((el) => el.bg(t.hover)).on_click((_event, cx) => (isRoom ? this.openRoomSettings(cx) : this.openProfile(cx))).child(isRoom ? "Settings" : "Role")),
       )
+      .when(isRoom, (el) => el.child(this.presenceStrip(t, chat, byId)))
       .child(
         views.length === 0
           ? this.notice(t, this.loading ? "Loading…" : "No messages yet", this.loading ? null : "Say hello below.")
           : v_flex().id("transcript").flex_1().min_h(0).overflow_y_scroll().track_scroll(this.scroll).p(10).gap(8).children(views.map((view) => this.message(t, view, chat))),
       )
       .when(Boolean(this.sendError), (el) => el.child(div().px(12).py(4).text_size(11.5).text_color(t.blocked).child(this.sendError)))
+      .when(isRoom && (chat.memberIds?.length ?? 0) > 0, (el) => el.child(div().px(12).pt(6).text_size(11).text_color(t.dim).child(`Everyone answers in turn. Address one bot with ${mentionHint(chat.memberIds)}.`)))
       .child(
         h_flex()
           .flex_none()
@@ -531,15 +628,24 @@ export default class HerdrBot extends View {
 
   listView(t) {
     const chats = visibleChats(this.chats.slice());
+    const byId = this.byId();
     if (chats.length === 0) return this.notice(t, "No bots yet", "Start an agent, or adopt one that is already running.", "New bot", (_event, cx) => this.openNewBot(cx));
-    return v_flex().id("chat-list").flex_1().min_h(0).overflow_y_scroll().p(6).gap(2).children(chats.map((chat) => this.row(t, chat)));
+    return v_flex().id("chat-list").flex_1().min_h(0).overflow_y_scroll().p(6).gap(2).children(chats.map((chat) => this.row(t, chat, byId)));
+  }
+
+  /** The screen that replaces the list, else the open chat, else the list. */
+  readyBody(t) {
+    if (this.screen === "new-bot") return this.newBot.render(t);
+    if (this.screen === "new-room" || this.screen === "room-settings") return this.roomEditor.render(t, this.chats);
+    if (this.screen === "profile") return this.profileEditor.render(t);
+    return this.selected != null ? this.chatView(t) : this.listView(t);
   }
 
   render() {
     const t = theme();
     const counts = summarize(this.chats);
     let body;
-    if (this.phase === "ready") body = this.selected != null ? this.chatView(t) : this.screen === "new-bot" ? this.newBot.render(t) : this.listView(t);
+    if (this.phase === "ready") body = this.readyBody(t);
     else if (this.phase === "missing" || this.phase === "outdated") body = this.missingView(t);
     else if (this.phase === "installing") body = this.notice(t, this.installStep ?? PHASE_TEXT.installing, "This runs once. The file is checked before it is used.");
     else if (this.phase === "error") body = this.notice(t, "Cannot reach herdr-bot", this.error);
@@ -559,6 +665,7 @@ export default class HerdrBot extends View {
           .border_b(1)
           .border_color(t.border)
           .child(div().flex_1().text_size(13).font_semibold().child("herdr-bot"))
+          .when(this.phase === "ready" && eligibleBots(this.chats).length >= 2, (row) => row.child(div().id("new-room").px(10).h(24).rounded(6).flex().items_center().cursor_pointer().text_size(12).font_semibold().text_color(t.foreground).bg(t.raised).hover((el) => el.bg(t.hover)).on_click((_event, cx) => this.openNewRoom(cx)).child("+ Room")))
           .when(this.phase === "ready", (row) => row.child(div().id("new-bot").px(10).h(24).rounded(6).flex().items_center().cursor_pointer().text_size(12).font_semibold().text_color(t.foreground).bg(t.raised).hover((el) => el.bg(t.hover)).on_click((_event, cx) => this.openNewBot(cx)).child("+ New")))
           .when(counts.blocked > 0, (row) => row.child(div().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child(`${counts.blocked} need you`)))
           .when(counts.working > 0, (row) => row.child(div().text_size(11).text_color(t.muted).child(`${counts.working} working`))),

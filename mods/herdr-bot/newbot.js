@@ -19,7 +19,10 @@ export class NewBot {
     this.nameInput = InputState.new({ placeholder: "Name, e.g. Scout" });
     this.cwdInput = InputState.new({ placeholder: "/path/to/project" });
     this.modelInput = InputState.new({ placeholder: "Model id" });
-    for (const input of [this.nameInput, this.cwdInput, this.modelInput]) {
+    // The bot's role: a short label, and optionally what it should do. Both are told to the bot.
+    this.roleInput = InputState.new({ placeholder: "Role, e.g. Code reviewer (optional)" });
+    this.personaInput = InputState.new({ placeholder: "What it should do, in a sentence (optional)" });
+    for (const input of [this.nameInput, this.cwdInput, this.modelInput, this.roleInput, this.personaInput]) {
       input.on("change", (_event, cx) => {
         this.error = null;
         cx.notify();
@@ -46,6 +49,8 @@ export class NewBot {
     return {
       ...this.form,
       name: this.nameInput.value(),
+      role: this.roleInput.value(),
+      persona: this.personaInput.value(),
       cwd: this.cwdInput.value(),
       model: this.models.list.length === 0 && typedModel.length > 0 ? typedModel : this.form.model,
     };
@@ -54,6 +59,8 @@ export class NewBot {
   open(cx) {
     this.reset();
     this.nameInput.set_value("");
+    this.roleInput.set_value("");
+    this.personaInput.set_value("");
     this.modelInput.set_value("");
     this.cwdInput.set_value("");
     cx.spawn(async (cx) => {
@@ -144,7 +151,7 @@ export class NewBot {
     if (adopting) {
       const agent = this.adoptable.list.find((candidate) => candidate.paneId === this.adoptSelected);
       if (agent == null || form.name.trim().length === 0) return;
-      params = adoptParams(agent, form.name);
+      params = adoptParams(agent, form.name, { role: form.role, persona: form.persona });
     } else {
       if (!canCreate(form)) return;
       params = createParams(form);
@@ -225,10 +232,20 @@ export class NewBot {
     return v_flex().gap(6).child(this.heading(t, "Model")).child(picker);
   }
 
+  /** The role: a short label and, optionally, what the bot should do. */
+  roleFields(t) {
+    return v_flex().gap(6)
+      .child(this.heading(t, "Role"))
+      .child(this.field(t, this.roleInput))
+      .child(this.field(t, this.personaInput))
+      .child(div().text_size(11).text_color(t.dim).child("Shown under its name, and told to the bot every turn."));
+  }
+
   newForm(t) {
     const provider = providerById(this.form.provider);
     return v_flex().gap(14)
       .child(v_flex().gap(6).child(this.heading(t, "Name")).child(this.field(t, this.nameInput)))
+      .child(this.roleFields(t))
       .child(v_flex().gap(6).child(this.heading(t, "Provider")).child(this.choices(t, "provider", PROVIDERS, this.form.provider, (id, cx) => this.pickProvider(id, cx))))
       .child(this.modelPicker(t))
       .when(Boolean(provider?.supportsReasoning), (el) => el.child(v_flex().gap(6).child(this.heading(t, "Reasoning")).child(this.choices(t, "effort", REASONING_EFFORTS.map((id) => ({ id, label: id })), this.form.reasoningEffort, (id, cx) => {
@@ -266,7 +283,8 @@ export class NewBot {
     })();
     return v_flex().gap(14)
       .child(v_flex().gap(6).child(this.heading(t, "Running agents")).child(body))
-      .child(v_flex().gap(6).child(this.heading(t, "Name")).child(this.field(t, this.nameInput)));
+      .child(v_flex().gap(6).child(this.heading(t, "Name")).child(this.field(t, this.nameInput)))
+      .child(this.roleFields(t));
   }
 
   render(t) {
